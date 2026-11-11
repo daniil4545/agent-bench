@@ -1,0 +1,18 @@
+# One section per agent. `cmd` is an argv list; {prompt} becomes one element, no shell.
+# `auth` lists credential paths relative to $HOME; they are copied into the run's private
+# home, so the originals are never mounted or modified.
+# The container is the sandbox, so agents run without approval prompts.
+
+[agents.claude]
+cmd = ["claude", "-p", "--output-format", "json", "--permission-mode", "bypassPermissions", "{prompt}"]
+auth = [".claude/.credentials.json"]
+
+[agents.codex]
+cmd = ["codex", "exec", "--json", "-m", "gpt-6.1-sol", "--dangerously-bypass-approvals-and-sandbox", "{prompt}"]
+model = "gpt-6.1-sol"
+auth = [".codex/auth.json"]
+
+[agents.kimi]
+cmd = ["kimi", "-m", "kimi-code/k3", "-p", "{prompt}"]
+model = "kimi-code/k3"
+auth = [".kimi-code/config.toml", ".kimi-code/credentials", ".kimi-code/oauth"]

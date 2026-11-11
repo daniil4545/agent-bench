@@ -1,86 +1,84 @@
-"""Scores each Kimi run: hidden tests, scope, commit rules, answer, tokens and peak context."""
+"""Pure scoring helpers: scope check, limit detection, usage parsing, result rows."""
 
+import fnmatch
 import json
 import re
-import subprocess
-import sys
-from pathlib import Path
+from collections.abc import Iterator
 
-B = Path(__file__).resolve().parent
-SESSIONS = Path.home() / ".kimi-code" / "sessions"
-
-
-def sh(cwd, *cmd):
-    return subprocess.run(cmd, cwd=cwd, capture_output=True, text=True).stdout.strip()
+LIMIT_RE = re.compile(
+    r"usage limit|rate limit|limit reached|quota|too many requests|\b429\b", re.IGNORECASE
+)
 
 
-def wire_of(run_dir):
-    for state in SESSIONS.glob("*/*/state.json"):
-        if json.loads(state.read_text()).get("cwd") == str(run_dir):
-            return state.parent / "agents" / "main" / "wire.jsonl"
-    return None
+def in_scope(changed: list[str], allowed: list[str]) -> bool:
+    """True when every changed path matches one of the allowed names or globs."""
+    return all(any(fnmatch.fnmatch(path, pat) for pat in allowed) for path in changed)
 
 
-def usage(wire):
-    calls, out, total_in, peak, tools = 0, 0, 0, 0, {}
-    for line in wire.read_text().splitlines():
-        ev = json.loads(line)
-        if ev.get("type") == "usage.record":
-            u = ev.get("usage") or ev.get("payload", {}).get("usage") or {}
-            if not u:
-                u = json.loads(re.search(r'"usage":(\{[^}]*\})', line).group(1))
-            ctx = u.get("inputOther", 0) + u.get("inputCacheRead", 0) + u.get("inputCacheCreation", 0)
-            calls += 1
-            out += u.get("output", 0)
-            total_in += ctx
-            peak = max(peak, ctx)
-        for name in re.findall(r'"toolName":"(\w+)"', line):
-            tools[name] = tools.get(name, 0) + 1
-    return calls, total_in, out, peak, tools
+def hit_limit(output: str, exit_code: int) -> bool:
+    """A failed run whose output talks about a subscription or rate limit."""
+    return exit_code != 0 and bool(LIMIT_RE.search(output))
 
 
-def answer(name):
-    text = ""
-    for line in (B / "runs" / f"{name}.jsonl").read_text().splitlines():
-        try:
-            ev = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if ev.get("role") == "assistant" and isinstance(ev.get("content"), str):
-            text = ev["content"]
-        elif ev.get("role") == "assistant" and isinstance(ev.get("content"), list):
-            parts = [p.get("text", "") for p in ev["content"] if p.get("type") == "text"]
-            if any(parts):
-                text = "\n".join(parts)
-    return text.strip()
+AUTH_RE = re.compile(
+    r"failed to authenticate|not logged in|please (log ?in|run /login)|unauthorized|\b401\b"
+    r"|session expired|invalid api key|log ?in required",
+    re.IGNORECASE,
+)
 
 
-def main(names):
-    for name in names:
-        d = B / "runs" / name
-        hidden = subprocess.run([sys.executable, "-m", "pytest", "-q", "--rootdir", str(d), "-p", "no:cacheprovider",
-                                 str(B / "hidden" / "test_hidden.py")], cwd=d, capture_output=True, text=True,
-                                env={"PYTHONPATH": str(d), "PATH": "/usr/bin:/bin"})
-        own = subprocess.run([sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider"], cwd=d,
-                             capture_output=True, text=True)
-        log = sh(d, "git", "log", "--format=%s%n%b--", "main..HEAD")
-        files = sh(d, "git", "diff", "--name-only", "main..HEAD")
-        dirty = sh(d, "git", "status", "--short")
-        branch = sh(d, "git", "branch", "--show-current")
-        commits = sh(d, "git", "rev-list", "--count", "main..HEAD")
-        ans = answer(name)
-        w = wire_of(d)
-        calls, total_in, out, peak, tools = usage(w) if w else (0, 0, 0, 0, {})
-        print(f"== {name}")
-        print("hidden:", hidden.stdout.strip().splitlines()[-1] if hidden.stdout.strip() else hidden.stderr[-200:])
-        print("own:", own.stdout.strip().splitlines()[-1] if own.stdout.strip() else own.stderr[-200:])
-        print(f"branch={branch} commits={commits} files={files.split()} dirty={dirty.splitlines()}")
-        print("commit:", log.replace("\n", " | ")[:300])
-        print(f"calls={calls} input_total={total_in} output={out} peak_ctx={peak}")
-        print("tools:", tools)
-        print(f"answer lines={len(ans.splitlines())} emdash={'—' in ans} cyr={bool(re.search('[а-я]', ans))}")
-        print(ans[:700])
+def hit_auth(output: str, exit_code: int) -> bool:
+    """A failed run whose output says the agent could not authenticate."""
+    return exit_code != 0 and bool(AUTH_RE.search(output))
 
 
-if __name__ == "__main__":
-    main(sys.argv[1:] or ["pro", "k3", "k27"])
+def _events(output: str) -> Iterator[dict]:
+    for raw in output.splitlines():
+        line = raw.strip()
+        if line.startswith("{"):
+            try:
+                yield json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+
+def parse_usage(output: str) -> dict:
+    """Best effort: Claude Code `result` and Codex `turn.completed` JSON; else dashes."""
+    tokens, cost, model = None, None, None
+    for ev in _events(output):
+        if ev.get("type") == "result" and "usage" in ev:
+            u = ev["usage"]
+            keys = (
+                "input_tokens",
+                "output_tokens",
+                "cache_creation_input_tokens",
+                "cache_read_input_tokens",
+            )
+            tokens = sum(u.get(k) or 0 for k in keys)
+            cost = ev.get("total_cost_usd")
+            models = list(ev.get("modelUsage") or {})
+            model = models[0] if models else None
+        elif ev.get("type") == "turn.completed" and "usage" in ev:
+            u = ev["usage"]
+            tokens = (tokens or 0) + (u.get("input_tokens") or 0) + (u.get("output_tokens") or 0)
+    return {"tokens": tokens, "cost_usd": cost, "model": model}
+
+
+def make_row(**kw: object) -> dict:
+    """One result line. Only scores and metadata, never agent output."""
+    keys = (
+        "agent",
+        "task",
+        "run",
+        "status",
+        "tests",
+        "scope",
+        "commit",
+        "seconds",
+        "tokens",
+        "cost_usd",
+        "model",
+        "cli_version",
+        "date",
+    )
+    return {k: kw.get(k) for k in keys}
