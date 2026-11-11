@@ -1,0 +1,2 @@
+allowed = ["cache.go", "stats.go", "cache_test.go"]
+test = ["go", "test", "-race", "./..."]
