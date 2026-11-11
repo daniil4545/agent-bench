@@ -1,0 +1,2 @@
+allowed = ["duration.py", "test_duration.py"]
+test = ["python3", "-m", "pytest", "-q", "-p", "no:cacheprovider", "test_hidden.py"]

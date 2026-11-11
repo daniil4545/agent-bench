@@ -1,0 +1,2 @@
+allowed = ["chunk.go", "chunk_test.go"]
+test = ["go", "test", "./..."]

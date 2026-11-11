@@ -1,4 +1,4 @@
-.PHONY: lint test
+.PHONY: lint test commit-check
 
 lint:
 	uvx ruff@0.17.2 check .
@@ -6,3 +6,5 @@ lint:
 
 test:
 	uv run --no-project --with pytest==8.4.2 python -m pytest -q -p no:cacheprovider tests
+
+commit-check: lint
