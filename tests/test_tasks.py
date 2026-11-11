@@ -23,6 +23,7 @@ def hidden_passes(task: str, tmp: Path, *, overlay: bool) -> bool:
             cmd,
             cwd=ws,
             capture_output=True,
+            timeout=240,
             check=False,
         ).returncode
         == 0
