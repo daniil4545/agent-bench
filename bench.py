@@ -38,7 +38,20 @@ def run(cmd: list[str], **kw: object) -> subprocess.CompletedProcess[str]:
 
 
 def git(ws: Path, *args: str) -> str:
-    return run(["git", "-C", str(ws), "-c", "safe.directory=*", *args]).stdout.strip()
+    return run(
+        [
+            "git",
+            "-C",
+            str(ws),
+            "-c",
+            "safe.directory=*",
+            "-c",
+            "core.fsmonitor=false",
+            "-c",
+            "core.hooksPath=/dev/null",
+            *args,
+        ]
+    ).stdout.strip()
 
 
 def docker_run(args: list[str], cmd: list[str], timeout: int) -> tuple[int, str, bool]:
@@ -51,6 +64,7 @@ def docker_run(args: list[str], cmd: list[str], timeout: int) -> tuple[int, str,
         "docker",
         "run",
         "--rm",
+        "--init",
         "--name",
         name,
         "--pids-limit",
@@ -65,6 +79,9 @@ def docker_run(args: list[str], cmd: list[str], timeout: int) -> tuple[int, str,
         run(["docker", "kill", name])
         out = (e.stdout or b"").decode() if isinstance(e.stdout, bytes) else (e.stdout or "")
         return 124, out, True
+    except BaseException:
+        run(["docker", "kill", name])
+        raise
     return p.returncode, p.stdout + p.stderr, False
 
 
@@ -72,7 +89,6 @@ def prepare(task: Path, ws: Path) -> str:
     """Fresh git copy of the task's base/; returns the base commit."""
     shutil.copytree(task / "base", ws)
     git(ws, "init", "-q", "-b", "main")
-    (ws / ".git" / "info" / "exclude").write_text("__pycache__/\n.pytest_cache/\n")
     git(ws, "add", "-A")
     git(
         ws,
@@ -104,9 +120,10 @@ def env_args(extra: dict) -> list[str]:
 
 
 def changed_files(ws: Path, base: str) -> list[str]:
-    committed = git(ws, "diff", "--name-only", base, "HEAD").splitlines()
-    dirty = [line[3:] for line in git(ws, "status", "--porcelain", "-uall").splitlines()]
-    return sorted(set(committed) | set(dirty))
+    """Paths that differ from base, ignore rules of the agent's repo included (add -f)."""
+    git(ws, "add", "-A", "-f")
+    names = git(ws, "diff", "--cached", "--name-only", base).splitlines()
+    return sorted(n for n in names if not score.is_noise(n))
 
 
 def one_run(agent: str, spec: dict, task: Path, n: int, opts: argparse.Namespace) -> dict:

@@ -73,3 +73,16 @@ def test_table_averages_tokens_and_cost():
 def test_table_skipped_agent():
     rows = [row("a", "t", status="limit")]
     assert "skipped (limit)" in report.table(rows)
+
+
+def test_limit_and_auth_only_in_tail():
+    noisy = "tokens 429 quota unauthorized " + "x" * 3000
+    assert not score.hit_limit(noisy, 1)
+    assert not score.hit_auth(noisy, 1)
+    assert score.hit_limit("x" * 3000 + " usage limit reached", 1)
+
+
+def test_is_noise():
+    assert score.is_noise("__pycache__/a.pyc")
+    assert score.is_noise("pkg/__pycache__/a.pyc")
+    assert not score.is_noise("pkg/a.py")

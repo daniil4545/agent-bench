@@ -5,9 +5,16 @@ import json
 import re
 from collections.abc import Iterator
 
+TAIL = 2000
+NOISE = ("__pycache__/", ".pytest_cache/")
 LIMIT_RE = re.compile(
     r"usage limit|rate limit|limit reached|quota|too many requests|\b429\b", re.IGNORECASE
 )
+
+
+def is_noise(path: str) -> bool:
+    """Interpreter and test caches are not edits."""
+    return any(path.startswith(n) or f"/{n}" in path for n in NOISE)
 
 
 def in_scope(changed: list[str], allowed: list[str]) -> bool:
@@ -16,8 +23,8 @@ def in_scope(changed: list[str], allowed: list[str]) -> bool:
 
 
 def hit_limit(output: str, exit_code: int) -> bool:
-    """A failed run whose output talks about a subscription or rate limit."""
-    return exit_code != 0 and bool(LIMIT_RE.search(output))
+    """A failed run whose last lines talk about a subscription or rate limit."""
+    return exit_code != 0 and bool(LIMIT_RE.search(output[-TAIL:]))
 
 
 AUTH_RE = re.compile(
@@ -28,8 +35,8 @@ AUTH_RE = re.compile(
 
 
 def hit_auth(output: str, exit_code: int) -> bool:
-    """A failed run whose output says the agent could not authenticate."""
-    return exit_code != 0 and bool(AUTH_RE.search(output))
+    """A failed run whose last lines say the agent could not authenticate."""
+    return exit_code != 0 and bool(AUTH_RE.search(output[-TAIL:]))
 
 
 def _events(output: str) -> Iterator[dict]:
