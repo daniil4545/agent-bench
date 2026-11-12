@@ -1,0 +1,2 @@
+allowed = ["slug.py", "test_slug.py"]
+test = ["python3", "-m", "pytest", "-q", "-p", "no:cacheprovider", "test_hidden.py"]
