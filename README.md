@@ -111,7 +111,7 @@ The harness appends one fixed sentence to every prompt: make one conventional co
 
 ## Development
 
-`make lint` runs ruff, `make test` runs the unit tests plus the task checks (needs Go).
+Checks: `make lint` (ruff, gofmt, golangci-lint). `make test` runs the unit tests plus the task checks (needs Go).
 
 ## License
 
