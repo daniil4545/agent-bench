@@ -1,0 +1,81 @@
+version: "2"
+
+# Trimmed ~/.claude/templates/golangci.yml: bug-finding linters only, style linters off.
+linters:
+  default: all
+  disable:
+    # layout: blank lines, line and name length
+    - wsl
+    - wsl_v5
+    - nlreturn
+    - lll
+    - varnamelen
+    - tagalign
+    - dogsled
+    - funcorder
+    - embeddedstructfieldcheck
+    - inamedparam
+    - nonamedreturns
+    - noinlineerr
+    # demand doc comments
+    - godot
+    - godoclint
+    - godox
+    # noise without a bug class
+    - exhaustruct
+    - exhaustruct_v5
+    - mnd
+    - gochecknoglobals
+    # need a per-project list or fight external APIs
+    - depguard
+    - forbidigo
+    - tagliatelle
+    - ireturn
+    - gosmopolitan
+    - err113
+    # test parallelism and test packages are a project decision
+    - paralleltest
+    - tparallel
+    - testpackage
+    # complexity and repeats belong to review
+    - cyclop
+    - gocyclo
+    - maintidx
+    - goconst
+    - prealloc
+    # existing task code fails: 5 findings (go-cache base 2, solution 3)
+    - forcetypeassert
+    # existing task code fails: 1 finding (go-cache solution)
+    - nestif
+    # deprecated, replaced by gomodguard_v2 (warning on every run)
+    - gomodguard
+  settings:
+    funlen:
+      lines: 100
+      statements: -1
+    gocognit:
+      min-complexity: 20
+    dupl:
+      threshold: 100
+    exhaustive:
+      default-signifies-exhaustive: true
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+  exclusions:
+    rules:
+      # table-driven tests are long, not complex
+      - path: _test\.go
+        linters:
+          - funlen
+          - gocognit
+          - dupl
+          - errcheck
+          - gosec
+          - wrapcheck
+          - contextcheck
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
